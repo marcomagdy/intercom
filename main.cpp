@@ -1,173 +1,154 @@
-#include <arpa/inet.h>
-#include <atomic>
 #include <iostream>
-#include <netinet/in.h>
 #include <portaudio.h>
-#include <string>
-#include <sys/socket.h>
-#include <thread>
-#include <unistd.h>
+
+#include "TcpConnection.h"
 
 #define CHUNK_SIZE 1024
 #define SAMPLE_RATE 44100
-#define CHANNELS 1
-#define DISCOVERY_PORT 5000
-#define AUDIO_PORT 5001
-#define BROADCAST_ADDR "255.255.255.255"
+#define TCP_PORT 6879
 
-class Intercom {
-private:
-    PaStream* stream;
-    int udp_sock;
-    int audio_sock;
-    std::string remote_ip;
-    std::atomic<bool> running;
-    std::atomic<bool> connected;
-    bool is_recording;
 
-    static int audioCallback(const void* input, void* output, unsigned long frameCount,
-        const PaStreamCallbackTimeInfo* timeInfo, PaStreamCallbackFlags statusFlags, void* userData)
-    {
-        Intercom* intercom = static_cast<Intercom*>(userData);
-        if (intercom->is_recording) {
-            struct sockaddr_in addr;
-            addr.sin_family = AF_INET;
-            addr.sin_port = htons(AUDIO_PORT);
-            inet_pton(AF_INET, intercom->remote_ip.c_str(), &addr.sin_addr);
-            sendto(intercom->audio_sock, input, frameCount * sizeof(int16_t), 0, (struct sockaddr*)&addr, sizeof(addr));
-        } else {
-            char buffer[CHUNK_SIZE * 2];
-            struct sockaddr_in sender;
-            socklen_t len = sizeof(sender);
-            int received = recvfrom(intercom->audio_sock, buffer, sizeof(buffer), 0, (struct sockaddr*)&sender, &len);
-            if (received > 0 && sender.sin_addr.s_addr == inet_addr(intercom->remote_ip.c_str())) {
-                memcpy(output, buffer, received);
-            }
-        }
-        return paContinue;
-    }
-
-    std::string getLocalIP()
-    {
-        int sock = socket(AF_INET, SOCK_DGRAM, 0);
-        struct sockaddr_in addr;
-        addr.sin_family = AF_INET;
-        addr.sin_port = htons(9);
-        inet_pton(AF_INET, "10.255.255.255", &addr.sin_addr);
-        connect(sock, (struct sockaddr*)&addr, sizeof(addr));
-        struct sockaddr_in local;
-        socklen_t len = sizeof(local);
-        getsockname(sock, (struct sockaddr*)&local, &len);
-        char ip[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &local.sin_addr, ip, sizeof(ip));
-        close(sock);
-        return std::string(ip);
-    }
-
-    void discoveryListener()
-    {
-        char buffer[1024];
-        while (!connected) {
-            struct sockaddr_in sender;
-            socklen_t len = sizeof(sender);
-            int received = recvfrom(udp_sock, buffer, sizeof(buffer), 0, (struct sockaddr*)&sender, &len);
-            if (received > 0) {
-                std::string message(buffer, received);
-                if (message.find("INTERCOM:") == 0 && sender.sin_addr.s_addr != inet_addr(getLocalIP().c_str())) {
-                    remote_ip = message.substr(9);
-                    connected = true;
-                    std::cout << "Connected to " << remote_ip << std::endl;
-                }
-            }
-        }
-    }
-
-public:
-    Intercom()
-        : running(false)
-        , connected(false)
-        , is_recording(false)
-    {
-        // Initialize PortAudio
-        Pa_Initialize();
-
-        // Setup UDP discovery socket
-        udp_sock = socket(AF_INET, SOCK_DGRAM, 0);
-        int broadcast = 1;
-        setsockopt(udp_sock, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast));
-        struct sockaddr_in udp_addr;
-        udp_addr.sin_family = AF_INET;
-        udp_addr.sin_port = htons(DISCOVERY_PORT);
-        udp_addr.sin_addr.s_addr = INADDR_ANY;
-        bind(udp_sock, (struct sockaddr*)&udp_addr, sizeof(udp_addr));
-
-        // Setup audio socket
-        audio_sock = socket(AF_INET, SOCK_DGRAM, 0);
-        struct sockaddr_in audio_addr;
-        audio_addr.sin_family = AF_INET;
-        audio_addr.sin_port = htons(AUDIO_PORT);
-        audio_addr.sin_addr.s_addr = INADDR_ANY;
-        bind(audio_sock, (struct sockaddr*)&audio_addr, sizeof(audio_addr));
-    }
-
-    ~Intercom()
-    {
-        Pa_Terminate();
-        close(udp_sock);
-        close(audio_sock);
-    }
-
-    void discover()
-    {
-        std::cout << "Starting discovery..." << std::endl;
-        std::thread listener(&Intercom::discoveryListener, this);
-        listener.detach();
-
-        std::string message = "INTERCOM:" + getLocalIP();
-        struct sockaddr_in broadcast_addr;
-        broadcast_addr.sin_family = AF_INET;
-        broadcast_addr.sin_port = htons(DISCOVERY_PORT);
-        inet_pton(AF_INET, BROADCAST_ADDR, &broadcast_addr.sin_addr);
-
-        while (!connected) {
-            sendto(udp_sock, message.c_str(), message.length(), 0, (struct sockaddr*)&broadcast_addr,
-                sizeof(broadcast_addr));
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-        }
-    }
-
-    void run()
-    {
-        discover();
-
-        // Setup audio stream
-        Pa_OpenDefaultStream(&stream, CHANNELS, CHANNELS, paInt16, SAMPLE_RATE, CHUNK_SIZE, audioCallback, this);
-        Pa_StartStream(stream);
-
-        while (true) {
-            std::string input;
-            std::cout << "Press 't' to talk, 'l' to listen, 'q' to quit: ";
-            std::getline(std::cin, input);
-
-            if (input == "q")
-                break;
-            else if (input == "t" || input == "l") {
-                is_recording = (input == "t");
-                running = true;
-                std::cout << (is_recording ? "Recording..." : "Playing...") << " Press Enter to stop\n";
-                std::cin.get();
-                running = false;
-            }
-        }
-
-        Pa_StopStream(stream);
-        Pa_CloseStream(stream);
-    }
-};
-
-int main()
+int recordCallback(const void* inputBuffer, void* outputBuffer,
+                  unsigned long framesPerBuffer, const PaStreamCallbackTimeInfo* timeInfo,
+                  PaStreamCallbackFlags statusFlags, void* userData)
 {
-    Intercom intercom;
-    intercom.run();
-    return 0;
+    (void)outputBuffer; // Prevent unused variable warning
+    (void)timeInfo;
+    (void)statusFlags;
+    if (inputBuffer == nullptr)
+    {
+        return paContinue; // No input data
+    }
+    auto* connection = static_cast<Intercom::TcpConnection*>(userData);
+    auto [written, err] = connection->write((uint8_t*)inputBuffer, framesPerBuffer * sizeof(int16_t));
+    if (err != 0)
+    {
+        std::cerr << "Error writing to socket: " << strerror(err) << std::endl;
+        return paComplete; // Stop recording on error
+    }
+    return paContinue;
+}
+
+int playCallback(const void* inputBuffer, void* outputBuffer,
+                 unsigned long framesPerBuffer, const PaStreamCallbackTimeInfo* timeInfo,
+                 PaStreamCallbackFlags statusFlags, void* userData)
+{
+    (void)inputBuffer; // Prevent unused variable warning
+    (void)timeInfo;
+    (void)statusFlags;
+    auto* connection = static_cast<Intercom::TcpConnection*>(userData);
+    auto [read, err] = connection->read(reinterpret_cast<uint8_t*>(outputBuffer), framesPerBuffer * sizeof(int16_t));
+    if (read == 0)
+    {
+        return paComplete; // No more data to play
+    }
+    return paContinue; // Continue playback
+}
+
+
+void SpeakerMain(Intercom::TcpConnection& conn)
+{
+    printf("Connected.. \n");
+    // Record audio from microphone for 5s and then play it back.
+    PaStreamParameters inputParameters;
+    inputParameters.device = Pa_GetDefaultInputDevice();
+    inputParameters.channelCount = 1;
+    inputParameters.sampleFormat = paInt16;
+    inputParameters.suggestedLatency = Pa_GetDeviceInfo(inputParameters.device)->defaultLowInputLatency;
+    inputParameters.hostApiSpecificStreamInfo = nullptr;
+    PaStream* stream;
+    auto err = Pa_OpenStream(&stream, &inputParameters, nullptr, SAMPLE_RATE, CHUNK_SIZE, paClipOff, recordCallback, &conn);
+    if (err != paNoError)
+    {
+        std::cerr << "Error opening stream: " << Pa_GetErrorText(err) << std::endl;
+        return;
+    }
+    Pa_StartStream(stream);
+    // read a character from stdin and if it's q then quit
+    char c;
+    while (true)
+    {
+        std::cin >> c;
+        if (c == 'q')
+        {
+            break;
+        }
+    }
+    Pa_CloseStream(stream);
+}
+
+void ListenerMain()
+{
+    auto optListener = Intercom::TcpConnectionListener::listen(TCP_PORT);
+    if (!optListener)
+    {
+        std::cerr << "Failed to start listener" << std::endl;
+        return;
+    }
+    auto& listener = *optListener;
+
+    auto optConn = listener.accept();
+    if (!optConn)
+    {
+        std::cerr << "Failed to accept connection" << std::endl;
+        return;
+    }
+    auto& conn = *optConn;
+
+    PaStreamParameters outputParameters;
+    outputParameters.device = Pa_GetDefaultOutputDevice();
+    printf("Output device: %s\n", Pa_GetDeviceInfo(outputParameters.device)->name);
+    outputParameters.channelCount = 1;
+    outputParameters.sampleFormat = paInt16;
+    outputParameters.suggestedLatency = Pa_GetDeviceInfo(outputParameters.device)->defaultLowOutputLatency;
+    outputParameters.hostApiSpecificStreamInfo = nullptr;
+    printf("Playing back audio...\n");
+    PaStream* stream;
+    auto err = Pa_OpenStream(&stream, nullptr, &outputParameters, SAMPLE_RATE, CHUNK_SIZE, paClipOff, playCallback, &conn);
+    if (err != paNoError)
+    {
+        std::cerr << "Error opening stream: " << Pa_GetErrorText(err) << std::endl;
+        return;
+    }
+
+    Pa_StartStream(stream);
+    // read a character from stdin and if it's q then quit
+    char c;
+    while (true)
+    {
+        std::cin >> c;
+        if (c == 'q')
+        {
+            break;
+        }
+    }
+    Pa_CloseStream(stream);
+}
+
+int main(int argc, char* argv[])
+{
+    if (argc < 3) {
+        fprintf(stderr, "Usage: %s (server|client) hostname\n", argv[0]);
+        return -1;
+    }
+
+    Pa_Initialize();
+    if (strcmp(argv[1], "server") == 0) {
+        // Start server
+        printf("Starting server...\n");
+        ListenerMain();
+    } else if (strcmp(argv[1], "client") == 0) {
+        // Start client
+        printf("Starting client...\n");
+        // Client code here
+        printf("Connecting to [%s]...\n", argv[2]);
+        if (auto optConn = Intercom::TcpConnection::connect(argv[2], TCP_PORT); optConn) {
+            SpeakerMain(*optConn);
+        }
+    } else {
+        fprintf(stderr, "Invalid mode. Use 'server' or 'client'.\n");
+        return -1;
+    }
+
+    Pa_Terminate();
 }

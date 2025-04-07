@@ -2,9 +2,11 @@ cmake_minimum_required(VERSION 3.20)
 
 SET(CMAKE_CXX_STANDARD 20)
 
-project(intercom)
+project(intercom VERSION 0.1 LANGUAGES CXX)
 
-add_executable(${PROJECT_NAME} main.cpp)
+add_executable(${PROJECT_NAME} 
+    TcpConnection.cpp
+    main.cpp)
 
 target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -Wpedantic -fno-exceptions -fno-rtti)
 
