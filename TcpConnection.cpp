@@ -110,6 +110,18 @@ std::optional<TcpConnection> TcpConnection::connect(const char* hostname, uint16
         return std::nullopt;
     }
 
+	int flag = 1;
+	if (setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(int)) < 0) {
+		fprintf(stderr, "TcpConnection - Failed to set TCP_NODELAY: %s", strerror(errno));
+		return std::nullopt;
+	}
+
+	flag = 1;
+	if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag)) < 0) {
+		fprintf(stderr, "TcpConnection - Failed to set SO_REUSEADDR: %s", strerror(errno));
+		return std::nullopt;
+	}
+
     addr.sin_port = htons(port);
 
     if (::connect(sockfd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
