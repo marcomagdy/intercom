@@ -20,6 +20,7 @@ public:
     std::pair<uint64_t, int> read(uint8_t* buffer, size_t length) const;
     std::pair<uint64_t, int> read_once(uint8_t* buffer, size_t length) const;
     std::pair<uint64_t, int> write(const uint8_t* buffer, size_t length) const;
+    bool set_non_blocking();
     int socket() const { return m_sockfd; }
 };
 

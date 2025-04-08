@@ -96,6 +96,13 @@ std::pair<uint64_t, int> TcpConnection::write(const uint8_t* buffer, size_t leng
     return { bytes_written, 0 };
 }
 
+bool TcpConnection::set_non_blocking()
+{
+    int flags = fcntl(m_sockfd, F_GETFL, 0);
+    int ret = fcntl(m_sockfd, F_SETFL, flags | O_NONBLOCK);
+    return ret == 0;
+}
+
 std::optional<TcpConnection> TcpConnection::connect(const char* hostname, uint16_t port)
 {
     struct sockaddr_in addr;
@@ -110,17 +117,17 @@ std::optional<TcpConnection> TcpConnection::connect(const char* hostname, uint16
         return std::nullopt;
     }
 
-	int flag = 1;
-	if (setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(int)) < 0) {
-		fprintf(stderr, "TcpConnection - Failed to set TCP_NODELAY: %s", strerror(errno));
-		return std::nullopt;
-	}
+    int flag = 1;
+    if (setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(int)) < 0) {
+        fprintf(stderr, "TcpConnection - Failed to set TCP_NODELAY: %s", strerror(errno));
+        return std::nullopt;
+    }
 
-	flag = 1;
-	if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag)) < 0) {
-		fprintf(stderr, "TcpConnection - Failed to set SO_REUSEADDR: %s", strerror(errno));
-		return std::nullopt;
-	}
+    flag = 1;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag)) < 0) {
+        fprintf(stderr, "TcpConnection - Failed to set SO_REUSEADDR: %s", strerror(errno));
+        return std::nullopt;
+    }
 
     addr.sin_port = htons(port);
 

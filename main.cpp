@@ -7,31 +7,26 @@
 #define SAMPLE_RATE 44100
 #define TCP_PORT 6879
 
-
-int recordCallback(const void* inputBuffer, void* outputBuffer,
-                  unsigned long framesPerBuffer, const PaStreamCallbackTimeInfo* timeInfo,
-                  PaStreamCallbackFlags statusFlags, void* userData)
+int recordCallback(const void* inputBuffer, void* outputBuffer, unsigned long framesPerBuffer,
+    const PaStreamCallbackTimeInfo* timeInfo, PaStreamCallbackFlags statusFlags, void* userData)
 {
     (void)outputBuffer; // Prevent unused variable warning
     (void)timeInfo;
     (void)statusFlags;
-    if (inputBuffer == nullptr)
-    {
+    if (inputBuffer == nullptr) {
         return paContinue; // No input data
     }
     auto* connection = static_cast<Intercom::TcpConnection*>(userData);
     auto [written, err] = connection->write((uint8_t*)inputBuffer, framesPerBuffer * sizeof(int16_t));
-    if (err != 0)
-    {
+    if (err != 0) {
         std::cerr << "Error writing to socket: " << strerror(err) << std::endl;
         return paComplete; // Stop recording on error
     }
     return paContinue;
 }
 
-int playCallback(const void* inputBuffer, void* outputBuffer,
-                 unsigned long framesPerBuffer, const PaStreamCallbackTimeInfo* timeInfo,
-                 PaStreamCallbackFlags statusFlags, void* userData)
+int playCallback(const void* inputBuffer, void* outputBuffer, unsigned long framesPerBuffer,
+    const PaStreamCallbackTimeInfo* timeInfo, PaStreamCallbackFlags statusFlags, void* userData)
 {
     (void)inputBuffer; // Prevent unused variable warning
     (void)timeInfo;
@@ -40,17 +35,16 @@ int playCallback(const void* inputBuffer, void* outputBuffer,
     auto [read, err] = connection->read_once(static_cast<uint8_t*>(outputBuffer), framesPerBuffer * sizeof(int16_t));
     if (err == EWOULDBLOCK) {
         memset(outputBuffer, 0, framesPerBuffer * sizeof(int16_t)); // Fill with silence
-        return paContinue; // No data available
+        return paContinue;                                          // No data available
     }
-    if (err != 0)
-    {
+    if (err != 0) {
         std::cerr << "Error reading from socket: " << strerror(err) << std::endl;
         return paComplete; // Stop playback on error
     }
 
-    if (read == 0) { // other side closed the connection
+    if (read == 0) {                                                // other side closed the connection
         memset(outputBuffer, 0, framesPerBuffer * sizeof(int16_t)); // Fill with silence
-        return paComplete; // Stop playback
+        return paComplete;                                          // Stop playback
     }
 
     // Fill the rest of the output buffer with silence
@@ -59,7 +53,6 @@ int playCallback(const void* inputBuffer, void* outputBuffer,
     }
     return paContinue; // Continue playback
 }
-
 
 void SpeakerMain(Intercom::TcpConnection& conn)
 {
@@ -72,20 +65,18 @@ void SpeakerMain(Intercom::TcpConnection& conn)
     inputParameters.suggestedLatency = Pa_GetDeviceInfo(inputParameters.device)->defaultLowInputLatency;
     inputParameters.hostApiSpecificStreamInfo = nullptr;
     PaStream* stream;
-    auto err = Pa_OpenStream(&stream, &inputParameters, nullptr, SAMPLE_RATE, CHUNK_SIZE, paClipOff, recordCallback, &conn);
-    if (err != paNoError)
-    {
+    auto err
+        = Pa_OpenStream(&stream, &inputParameters, nullptr, SAMPLE_RATE, CHUNK_SIZE, paClipOff, recordCallback, &conn);
+    if (err != paNoError) {
         std::cerr << "Error opening stream: " << Pa_GetErrorText(err) << std::endl;
         return;
     }
     Pa_StartStream(stream);
     // read a character from stdin and if it's q then quit
     char c;
-    while (true)
-    {
+    while (true) {
         std::cin >> c;
-        if (c == 'q')
-        {
+        if (c == 'q') {
             break;
         }
     }
@@ -95,16 +86,14 @@ void SpeakerMain(Intercom::TcpConnection& conn)
 void ListenerMain()
 {
     auto optListener = Intercom::TcpConnectionListener::listen(TCP_PORT);
-    if (!optListener)
-    {
+    if (!optListener) {
         std::cerr << "Failed to start listener" << std::endl;
         return;
     }
     auto& listener = *optListener;
 
     auto optConn = listener.accept();
-    if (!optConn)
-    {
+    if (!optConn) {
         std::cerr << "Failed to accept connection" << std::endl;
         return;
     }
@@ -119,9 +108,9 @@ void ListenerMain()
     outputParameters.hostApiSpecificStreamInfo = nullptr;
     printf("Playing back audio...\n");
     PaStream* stream;
-    auto err = Pa_OpenStream(&stream, nullptr, &outputParameters, SAMPLE_RATE, CHUNK_SIZE, paClipOff, playCallback, &conn);
-    if (err != paNoError)
-    {
+    auto err
+        = Pa_OpenStream(&stream, nullptr, &outputParameters, SAMPLE_RATE, CHUNK_SIZE, paClipOff, playCallback, &conn);
+    if (err != paNoError) {
         std::cerr << "Error opening stream: " << Pa_GetErrorText(err) << std::endl;
         return;
     }
@@ -129,11 +118,9 @@ void ListenerMain()
     Pa_StartStream(stream);
     // read a character from stdin and if it's q then quit
     char c;
-    while (true)
-    {
+    while (true) {
         std::cin >> c;
-        if (c == 'q')
-        {
+        if (c == 'q') {
             break;
         }
     }
