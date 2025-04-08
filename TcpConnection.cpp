@@ -7,6 +7,7 @@
 #include <netinet/tcp.h> // for TCP_NODELAY
 #include <stdio.h>
 #include <unistd.h>
+#include <string>
 
 namespace Intercom {
 
@@ -226,6 +227,102 @@ void TcpConnectionListener::stop()
         ::close(m_sockfd);
         m_sockfd = -1;
     }
+}
+
+UdpSocket::~UdpSocket()
+{
+    if (m_sockfd >= 0) {
+        ::close(m_sockfd);
+    }
+}
+
+UdpSocket::UdpSocket(UdpSocket&& other) noexcept
+    : m_sockfd(other.m_sockfd)
+    , m_port(other.m_port)
+{
+    other.m_sockfd = -1;
+}
+
+UdpSocket& UdpSocket::operator=(UdpSocket&& other) noexcept
+{
+    if (this == &other) {
+        return *this;
+    }
+
+    if (m_sockfd >= 0) {
+        ::close(m_sockfd);
+    }
+
+    m_sockfd = other.m_sockfd;
+    m_port = other.m_port;
+    other.m_sockfd = -1;
+    return *this;
+}
+
+std::optional<UdpSocket> UdpSocket::create(uint16_t port)
+{
+    int sockfd = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0) {
+        fprintf(stderr, "UdpSocket - Failed to create socket: %s", strerror(errno));
+        return std::nullopt;
+    }
+
+    int flag = 1;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_BROADCAST, &flag, sizeof(flag)) < 0) {
+        fprintf(stderr, "UdpSocket - Failed to set SO_BROADCAST: %s", strerror(errno));
+        return std::nullopt;
+    }
+
+    struct sockaddr_in addr {};
+    addr.sin_family = AF_INET;
+    addr.sin_addr = { INADDR_ANY };
+    addr.sin_port = htons(port);
+
+    if (::bind(sockfd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        fprintf(stderr, "UdpSocket - Failed to bind socket: %s", strerror(errno));
+        return std::nullopt;
+    }
+
+    printf("UdpSocket - Listening on port %d\n", port);
+    return UdpSocket { sockfd, port };
+}
+
+void UdpSocket::broadcast(const uint8_t* data, size_t length)
+{
+    if (length > INT_MAX) {
+        return;
+    }
+
+    struct sockaddr_in addr {};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(m_port);
+    addr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+
+    auto ret = ::write(m_sockfd, data, length);
+    if (ret < 0) {
+        fprintf(stderr, "UdpSocket - Failed to broadcast: %s", strerror(errno));
+    }
+}
+
+std::pair<uint64_t, int> UdpSocket::read_from(uint8_t* buffer, size_t length, std::string& sender_address) const
+{
+    if (length > INT_MAX) {
+        return { 0, EINVAL };
+    }
+
+    struct sockaddr_in sender {};
+    socklen_t sender_len = sizeof(sender);
+    ssize_t ret = ::recvfrom(m_sockfd, buffer, length, 0, (struct sockaddr*)&sender, &sender_len);
+    if (ret < 0) {
+        return { ret, errno };
+    }
+
+    char ip_str[INET_ADDRSTRLEN];
+    if (inet_ntop(AF_INET, &sender.sin_addr, ip_str, sizeof(ip_str)) == nullptr) {
+        return { ret, errno };
+    }
+    sender_address = ip_str;
+    return { ret, 0 };
 }
 
 } // namespace Intercom

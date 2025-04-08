@@ -18,6 +18,7 @@ public:
     TcpConnection(TcpConnection&& other);
     TcpConnection& operator=(TcpConnection&& other);
     std::pair<uint64_t, int> read(uint8_t* buffer, size_t length) const;
+    // A non-blocking read that returns immediately if no data is available.
     std::pair<uint64_t, int> read_once(uint8_t* buffer, size_t length) const;
     std::pair<uint64_t, int> write(const uint8_t* buffer, size_t length) const;
     bool set_non_blocking();
@@ -43,4 +44,26 @@ public:
     int socket() const { return m_sockfd; }
 };
 
+class UdpSocket {
+    int m_sockfd;
+    uint16_t m_port;
+    UdpSocket(int socket, uint16_t port)
+        : m_sockfd(socket)
+        , m_port(port)
+    {
+    }
+public:
+    ~UdpSocket();
+    static std::optional<UdpSocket> create(uint16_t port);
+    UdpSocket(const UdpSocket&) = delete;
+    UdpSocket& operator=(const UdpSocket&) = delete;
+    UdpSocket(UdpSocket&& other) noexcept;
+    UdpSocket& operator=(UdpSocket&& other) noexcept;
+
+    // Broadcast data on the socket
+    void broadcast(const uint8_t* data, size_t length);
+
+    std::pair<uint64_t, int> read_from(uint8_t* buffer, size_t length, std::string& sender_address) const;
+};
 }
+
