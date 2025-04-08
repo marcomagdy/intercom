@@ -17,8 +17,9 @@ public:
     TcpConnection& operator=(const TcpConnection&) = delete;
     TcpConnection(TcpConnection&& other);
     TcpConnection& operator=(TcpConnection&& other);
-    std::pair<int64_t, int> read(uint8_t* buffer, size_t length) const;
-    std::pair<int64_t, int> write(const uint8_t* buffer, size_t length) const;
+    std::pair<uint64_t, int> read(uint8_t* buffer, size_t length) const;
+    std::pair<uint64_t, int> read_once(uint8_t* buffer, size_t length) const;
+    std::pair<uint64_t, int> write(const uint8_t* buffer, size_t length) const;
     int socket() const { return m_sockfd; }
 };
 

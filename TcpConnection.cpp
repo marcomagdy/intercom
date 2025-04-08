@@ -51,10 +51,23 @@ TcpConnection& TcpConnection::operator=(TcpConnection&& other)
     return *this;
 }
 
-std::pair<int64_t, int> TcpConnection::read(uint8_t* buffer, size_t len) const
+std::pair<uint64_t, int> TcpConnection::read_once(uint8_t* buffer, size_t len) const
 {
     if (len > INT_MAX) {
-        return { -1, EINVAL };
+        return { 0, EINVAL };
+    }
+    int64_t ret = ::read(m_sockfd, buffer, len);
+    if (ret >= 0) {
+        return { ret, 0 };
+    }
+
+    return { 0, EWOULDBLOCK };
+}
+
+std::pair<uint64_t, int> TcpConnection::read(uint8_t* buffer, size_t len) const
+{
+    if (len > INT_MAX) {
+        return { 0, EINVAL };
     }
     uint64_t bytes_read = 0;
     while (bytes_read < len) {
@@ -67,10 +80,10 @@ std::pair<int64_t, int> TcpConnection::read(uint8_t* buffer, size_t len) const
     return { bytes_read, 0 };
 }
 
-std::pair<int64_t, int> TcpConnection::write(const uint8_t* buffer, size_t length) const
+std::pair<uint64_t, int> TcpConnection::write(const uint8_t* buffer, size_t length) const
 {
     if (length > INT_MAX) {
-        return { -1, EINVAL };
+        return { 0, EINVAL };
     }
     uint64_t bytes_written = 0;
     while (bytes_written < length) {

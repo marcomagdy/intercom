@@ -37,10 +37,25 @@ int playCallback(const void* inputBuffer, void* outputBuffer,
     (void)timeInfo;
     (void)statusFlags;
     auto* connection = static_cast<Intercom::TcpConnection*>(userData);
-    auto [read, err] = connection->read(reinterpret_cast<uint8_t*>(outputBuffer), framesPerBuffer * sizeof(int16_t));
-    if (read == 0)
+    auto [read, err] = connection->read_once(static_cast<uint8_t*>(outputBuffer), framesPerBuffer * sizeof(int16_t));
+    if (err == EWOULDBLOCK) {
+        memset(outputBuffer, 0, framesPerBuffer * sizeof(int16_t)); // Fill with silence
+        return paContinue; // No data available
+    }
+    if (err != 0)
     {
-        return paComplete; // No more data to play
+        std::cerr << "Error reading from socket: " << strerror(err) << std::endl;
+        return paComplete; // Stop playback on error
+    }
+
+    if (read == 0) { // other side closed the connection
+        memset(outputBuffer, 0, framesPerBuffer * sizeof(int16_t)); // Fill with silence
+        return paComplete; // Stop playback
+    }
+
+    // Fill the rest of the output buffer with silence
+    if ((size_t)read < framesPerBuffer * sizeof(int16_t)) {
+        memset(static_cast<uint8_t*>(outputBuffer) + read, 0, (framesPerBuffer * sizeof(int16_t)) - read);
     }
     return paContinue; // Continue playback
 }
