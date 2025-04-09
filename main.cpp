@@ -54,78 +54,110 @@ int playCallback(const void* inputBuffer, void* outputBuffer, unsigned long fram
     return paContinue; // Continue playback
 }
 
-void SpeakerMain(Intercom::TcpConnection& conn)
+class IntercomAudio
 {
-    printf("Connected.. \n");
-    // Record audio from microphone for 5s and then play it back.
-    PaStreamParameters inputParameters;
-    inputParameters.device = Pa_GetDefaultInputDevice();
-    inputParameters.channelCount = 1;
-    inputParameters.sampleFormat = paInt16;
-    inputParameters.suggestedLatency = Pa_GetDeviceInfo(inputParameters.device)->defaultLowInputLatency;
-    inputParameters.hostApiSpecificStreamInfo = nullptr;
-    PaStream* stream;
-    auto err
-        = Pa_OpenStream(&stream, &inputParameters, nullptr, SAMPLE_RATE, CHUNK_SIZE, paClipOff, recordCallback, &conn);
-    if (err != paNoError) {
-        std::cerr << "Error opening stream: " << Pa_GetErrorText(err) << std::endl;
-        return;
+    PaStream* m_recording_stream;
+    PaStream* m_playback_stream;
+public:
+    IntercomAudio(PaStream* rec_stream, PaStream* play_stream)
+        : m_recording_stream(rec_stream)
+        , m_playback_stream(play_stream)
+    {
     }
-    Pa_StartStream(stream);
-    // read a character from stdin and if it's q then quit
-    char c;
-    while (true) {
-        std::cin >> c;
-        if (c == 'q') {
-            break;
+
+    ~IntercomAudio()
+    {
+        if (m_recording_stream) {
+            Pa_AbortStream(m_recording_stream);
+            Pa_CloseStream(m_recording_stream);
+        }
+        if (m_playback_stream) {
+            Pa_AbortStream(m_playback_stream);
+            Pa_CloseStream(m_playback_stream);
         }
     }
-    Pa_CloseStream(stream);
-}
 
-void ListenerMain()
-{
-    auto optListener = Intercom::TcpConnectionListener::listen(TCP_PORT);
-    if (!optListener) {
-        std::cerr << "Failed to start listener" << std::endl;
-        return;
-    }
-    auto& listener = *optListener;
-
-    auto optConn = listener.accept();
-    if (!optConn) {
-        std::cerr << "Failed to accept connection" << std::endl;
-        return;
-    }
-    auto& conn = *optConn;
-
-    PaStreamParameters outputParameters;
-    outputParameters.device = Pa_GetDefaultOutputDevice();
-    printf("Output device: %s\n", Pa_GetDeviceInfo(outputParameters.device)->name);
-    outputParameters.channelCount = 1;
-    outputParameters.sampleFormat = paInt16;
-    outputParameters.suggestedLatency = Pa_GetDeviceInfo(outputParameters.device)->defaultLowOutputLatency;
-    outputParameters.hostApiSpecificStreamInfo = nullptr;
-    printf("Playing back audio...\n");
-    PaStream* stream;
-    auto err
-        = Pa_OpenStream(&stream, nullptr, &outputParameters, SAMPLE_RATE, CHUNK_SIZE, paClipOff, playCallback, &conn);
-    if (err != paNoError) {
-        std::cerr << "Error opening stream: " << Pa_GetErrorText(err) << std::endl;
-        return;
+    IntercomAudio(const IntercomAudio&) = delete;
+    IntercomAudio& operator=(const IntercomAudio&) = delete;
+    IntercomAudio(IntercomAudio&& other) : m_recording_stream(other.m_recording_stream)
+        , m_playback_stream(other.m_playback_stream)
+    {
+        other.m_recording_stream = nullptr;
+        other.m_playback_stream = nullptr;
     }
 
-    Pa_StartStream(stream);
-    // read a character from stdin and if it's q then quit
-    char c;
-    while (true) {
-        std::cin >> c;
-        if (c == 'q') {
-            break;
+    IntercomAudio& operator=(IntercomAudio&&) = delete;
+
+    static std::optional<IntercomAudio> create(Intercom::TcpConnection& connection)
+    {
+        PaStreamParameters inputParameters;
+        inputParameters.device = Pa_GetDefaultInputDevice();
+        inputParameters.channelCount = 1;
+        inputParameters.sampleFormat = paInt16;
+        inputParameters.suggestedLatency = Pa_GetDeviceInfo(inputParameters.device)->defaultLowInputLatency;
+        inputParameters.hostApiSpecificStreamInfo = nullptr;
+
+        PaStream* rec_stream;
+        auto err
+            = Pa_OpenStream(&rec_stream, &inputParameters, nullptr, SAMPLE_RATE, CHUNK_SIZE, paClipOff, recordCallback, &connection);
+        if (err != paNoError) {
+            std::cerr << "Error opening recording stream: " << Pa_GetErrorText(err) << std::endl;
+            return std::nullopt;
+        }
+
+
+
+        PaStreamParameters outputParameters;
+        outputParameters.device = Pa_GetDefaultOutputDevice();
+        outputParameters.channelCount = 1;
+        outputParameters.sampleFormat = paInt16;
+        outputParameters.suggestedLatency = Pa_GetDeviceInfo(outputParameters.device)->defaultLowOutputLatency;
+        outputParameters.hostApiSpecificStreamInfo = nullptr;
+
+
+        PaStream* play_stream;
+        err = Pa_OpenStream(&play_stream, nullptr, &outputParameters, SAMPLE_RATE, CHUNK_SIZE, paClipOff, playCallback, &connection);
+        if (err != paNoError) {
+            std::cerr << "Error opening playback stream: " << Pa_GetErrorText(err) << std::endl;
+            return std::nullopt;
+        }
+
+        return IntercomAudio(rec_stream, play_stream);
+    }
+
+    void start_recording()
+    {
+        auto err = Pa_StartStream(m_recording_stream);
+        if (err != paNoError) {
+            std::cerr << "Error starting recording stream: " << Pa_GetErrorText(err) << std::endl;
         }
     }
-    Pa_CloseStream(stream);
-}
+
+    void stop_recording()
+    {
+        auto err = Pa_AbortStream(m_recording_stream);
+        if (err != paNoError) {
+            std::cerr << "Error stopping recording stream: " << Pa_GetErrorText(err) << std::endl;
+        }
+    }
+
+    void start_playback()
+    {
+        auto err = Pa_StartStream(m_playback_stream);
+        if (err != paNoError) {
+            std::cerr << "Error starting playback stream: " << Pa_GetErrorText(err) << std::endl;
+        }
+    }
+
+    void stop_playback()
+    {
+        auto err = Pa_AbortStream(m_playback_stream);
+        if (err != paNoError) {
+            std::cerr << "Error stopping playback stream: " << Pa_GetErrorText(err) << std::endl;
+        }
+    }
+
+};
 
 int main(int argc, char* argv[])
 {
@@ -135,22 +167,75 @@ int main(int argc, char* argv[])
     }
 
     Pa_Initialize();
+    std::optional<Intercom::TcpConnection> connection;
     if (strcmp(argv[1], "server") == 0) {
         // Start server
         printf("Starting server...\n");
-        ListenerMain();
+        auto optListener = Intercom::TcpConnectionListener::listen(TCP_PORT);
+        if (!optListener) {
+            std::cerr << "Failed to start listener" << std::endl;
+            return -1;
+        }
+        auto& listener = *optListener;
+
+        auto optConn = listener.accept();
+        if (!optConn) {
+            std::cerr << "Failed to accept connection" << std::endl;
+            return -1;
+        }
+        optConn->set_non_blocking();
+        connection = std::move(*optConn);
     } else if (strcmp(argv[1], "client") == 0) {
         // Start client
         printf("Starting client...\n");
         // Client code here
         printf("Connecting to [%s]...\n", argv[2]);
         if (auto optConn = Intercom::TcpConnection::connect(argv[2], TCP_PORT); optConn) {
-            SpeakerMain(*optConn);
+            optConn->set_non_blocking();
+            connection = std::move(*optConn);
+        }
+        else {
+            std::cerr << "Failed to connect to server" << std::endl;
+            return -1;
         }
     } else {
         fprintf(stderr, "Invalid mode. Use 'server' or 'client'.\n");
         return -1;
     }
 
+    auto optIntercomAudio = IntercomAudio::create(*connection);
+    if (!optIntercomAudio) {
+        std::cerr << "Failed to create audio stream" << std::endl;
+        return -1;
+    }
+    auto& intercomAudio = *optIntercomAudio;
+    intercomAudio.start_playback();
+    bool recording = false;
+    while (true) {
+        printf("Press ' ' to toggle recording/playback, 'q' to quit\n");
+        std::string input;
+        std::getline(std::cin, input);
+        if (input.empty()) {
+            continue;
+        }
+        intercomAudio.stop_recording();
+        intercomAudio.stop_playback();
+        char ch = input[0];
+        if (ch  == ' ') {
+            if (recording) {
+                printf("stop recording, start playback\n");
+                intercomAudio.start_playback();
+            }
+            else {
+                printf("start recording, stop playback\n");
+                intercomAudio.start_recording();
+            }
+            recording = !recording;
+        }
+        else if (ch == 'q') {
+            optIntercomAudio.reset();
+            break;
+        }
+    }
     Pa_Terminate();
 }
