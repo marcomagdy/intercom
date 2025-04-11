@@ -298,13 +298,13 @@ void UdpSocket::broadcast(const uint8_t* data, size_t length)
     addr.sin_port = htons(m_port);
     addr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
 
-    auto ret = ::write(m_sockfd, data, length);
+    auto ret = ::sendto(m_sockfd, data, length, 0, (struct sockaddr*)&addr, sizeof(addr));
     if (ret < 0) {
         fprintf(stderr, "UdpSocket - Failed to broadcast: %s", strerror(errno));
     }
 }
 
-std::pair<uint64_t, int> UdpSocket::read_from(uint8_t* buffer, size_t length, std::string& sender_address) const
+std::pair<uint64_t, int> UdpSocket::receive_from(uint8_t* buffer, size_t length, std::string& sender_address) const
 {
     if (length > INT_MAX) {
         return { 0, EINVAL };
@@ -322,6 +322,26 @@ std::pair<uint64_t, int> UdpSocket::read_from(uint8_t* buffer, size_t length, st
         return { ret, errno };
     }
     sender_address = ip_str;
+    return { ret, 0 };
+}
+
+std::pair<uint64_t, int> UdpSocket::send_to(const uint8_t* buffer, size_t length, const char* address) const
+{
+    if (length > INT_MAX) {
+        return { 0, EINVAL };
+    }
+
+    struct sockaddr_in addr {};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(m_port);
+    if (inet_pton(AF_INET, address, &addr.sin_addr) <= 0) {
+        return { 0, EINVAL };
+    }
+
+    ssize_t ret = ::sendto(m_sockfd, buffer, length, 0, (struct sockaddr*)&addr, sizeof(addr));
+    if (ret < 0) {
+        return { ret, errno };
+    }
     return { ret, 0 };
 }
 

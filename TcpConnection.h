@@ -63,7 +63,8 @@ public:
     // Broadcast data on the socket
     void broadcast(const uint8_t* data, size_t length);
 
-    std::pair<uint64_t, int> read_from(uint8_t* buffer, size_t length, std::string& sender_address) const;
+    std::pair<uint64_t, int> receive_from(uint8_t* buffer, size_t length, std::string& sender_address) const;
+    std::pair<uint64_t, int> send_to(const uint8_t* buffer, size_t length, const char* address) const;
 };
 }
 

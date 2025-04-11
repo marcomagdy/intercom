@@ -1,5 +1,6 @@
 #include <iostream>
 #include <portaudio.h>
+#include <unistd.h>
 
 #include "TcpConnection.h"
 
@@ -18,6 +19,9 @@ int recordCallback(const void* inputBuffer, void* outputBuffer, unsigned long fr
     }
     auto* connection = static_cast<Intercom::TcpConnection*>(userData);
     auto [written, err] = connection->write((uint8_t*)inputBuffer, framesPerBuffer * sizeof(int16_t));
+    if (err == EWOULDBLOCK) {
+        return paContinue; // Socket is full, continue recording
+    }
     if (err != 0) {
         std::cerr << "Error writing to socket: " << strerror(err) << std::endl;
         return paComplete; // Stop recording on error
@@ -159,6 +163,79 @@ public:
 
 };
 
+int extract_pid(std::string message)
+{
+    size_t pos = message.find("Hello");
+    if (pos == std::string::npos) {
+        return -1; // "Hello" not found
+    }
+    pos += strlen("Hello");
+    while (pos < message.size() && isspace(message[pos])) {
+        pos++;
+    }
+    if (pos >= message.size()) {
+        return -1; // No PID found
+    }
+    size_t end_pos = message.find_first_not_of("0123456789", pos);
+    if (end_pos == std::string::npos) {
+        end_pos = message.size();
+    }
+    std::string pid_str = message.substr(pos, end_pos - pos);
+    int pid = std::stoi(pid_str);
+    return pid;
+}
+
+std::string dicover_peer(bool& should_listen)
+{
+    constexpr uint16_t kBroadcastPort = 55430;
+    auto optSocket = Intercom::UdpSocket::create(kBroadcastPort);
+
+    const char* broadcast_message = "Hello %d";
+    char outgoing_message[256];
+    const auto pid = getpid();
+    snprintf(outgoing_message, sizeof(outgoing_message), broadcast_message, pid);
+    std::string peer_ip_address;
+    if (!optSocket) {
+        std::cerr << "Failed to create UDP socket" << std::endl;
+        return peer_ip_address;
+    }
+    auto& broadcastSocket = *optSocket;
+
+    while (true) {
+        broadcastSocket.broadcast((uint8_t*)outgoing_message, strlen(outgoing_message));
+        std::string sender_address;
+        char incoming_msg[256];
+        auto [read, err] = broadcastSocket.receive_from((uint8_t*)incoming_msg, sizeof(incoming_msg), sender_address);
+        if (err != 0) {
+            std::cerr << "Error receiving broadcast: " << strerror(err) << std::endl;
+            continue;
+        }
+        if (read > 0) {
+            incoming_msg[read] = '\0'; // Null-terminate the received string
+            // Ignore my own message
+            if (strcmp(incoming_msg, outgoing_message) == 0) {
+                continue;
+            }
+
+            int peer_pid = extract_pid(incoming_msg);
+            if (peer_pid < 1) {
+                continue;
+            }
+            should_listen = peer_pid < pid;
+
+            printf("Received broadcast from %s: %s\n", sender_address.c_str(), incoming_msg);
+            peer_ip_address = sender_address;
+            break;
+        }
+    }
+    if (peer_ip_address.empty()) {
+        std::cerr << "Failed to discover peer" << std::endl;
+    } else {
+        printf("Discovered peer: %s\n", peer_ip_address.c_str());
+    }
+    return peer_ip_address;
+}
+
 int main(int argc, char* argv[])
 {
     if (argc < 3) {
@@ -166,7 +243,21 @@ int main(int argc, char* argv[])
         return -1;
     }
 
-    Pa_Initialize();
+    bool should_listen = false;
+    std::string peer_ip_address = dicover_peer(should_listen);
+    if (peer_ip_address.empty()) {
+        fprintf(stderr, "Failed to discover peer\n");
+        return -1;
+    }
+    if (should_listen) {
+        printf("Listening for incoming connections...\n");
+    } else {
+        printf("Connecting to peer...\n");
+    }
+
+    
+    /*
+     Pa_Initialize();
     std::optional<Intercom::TcpConnection> connection;
     if (strcmp(argv[1], "server") == 0) {
         // Start server
@@ -238,4 +329,5 @@ int main(int argc, char* argv[])
         }
     }
     Pa_Terminate();
+    */
 }
