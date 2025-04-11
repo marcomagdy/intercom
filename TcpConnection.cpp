@@ -300,7 +300,7 @@ void UdpSocket::broadcast(const uint8_t* data, size_t length)
 
     auto ret = ::sendto(m_sockfd, data, length, 0, (struct sockaddr*)&addr, sizeof(addr));
     if (ret < 0) {
-        fprintf(stderr, "UdpSocket - Failed to broadcast: %s", strerror(errno));
+        fprintf(stderr, "UdpSocket - Failed to broadcast: %s\n", strerror(errno));
     }
 }
 

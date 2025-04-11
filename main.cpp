@@ -202,6 +202,7 @@ std::string dicover_peer(bool& should_listen)
     auto& broadcastSocket = *optSocket;
 
     while (true) {
+
         broadcastSocket.broadcast((uint8_t*)outgoing_message, strlen(outgoing_message));
         std::string sender_address;
         char incoming_msg[256];
@@ -210,6 +211,7 @@ std::string dicover_peer(bool& should_listen)
             std::cerr << "Error receiving broadcast: " << strerror(err) << std::endl;
             continue;
         }
+
         if (read > 0) {
             incoming_msg[read] = '\0'; // Null-terminate the received string
             // Ignore my own message
@@ -221,13 +223,15 @@ std::string dicover_peer(bool& should_listen)
             if (peer_pid < 1) {
                 continue;
             }
-            should_listen = peer_pid < pid;
+            should_listen = pid < peer_pid;
 
             printf("Received broadcast from %s: %s\n", sender_address.c_str(), incoming_msg);
             peer_ip_address = sender_address;
             break;
         }
+        usleep(100000); // Sleep for 100ms
     }
+
     if (peer_ip_address.empty()) {
         std::cerr << "Failed to discover peer" << std::endl;
     } else {
@@ -238,11 +242,6 @@ std::string dicover_peer(bool& should_listen)
 
 int main(int argc, char* argv[])
 {
-    if (argc < 3) {
-        fprintf(stderr, "Usage: %s (server|client) hostname\n", argv[0]);
-        return -1;
-    }
-
     bool should_listen = false;
     std::string peer_ip_address = dicover_peer(should_listen);
     if (peer_ip_address.empty()) {
@@ -256,10 +255,9 @@ int main(int argc, char* argv[])
     }
 
     
-    /*
-     Pa_Initialize();
+    Pa_Initialize();
     std::optional<Intercom::TcpConnection> connection;
-    if (strcmp(argv[1], "server") == 0) {
+    if (should_listen) {
         // Start server
         printf("Starting server...\n");
         auto optListener = Intercom::TcpConnectionListener::listen(TCP_PORT);
@@ -276,7 +274,7 @@ int main(int argc, char* argv[])
         }
         optConn->set_non_blocking();
         connection = std::move(*optConn);
-    } else if (strcmp(argv[1], "client") == 0) {
+    } else {
         // Start client
         printf("Starting client...\n");
         // Client code here
@@ -289,9 +287,6 @@ int main(int argc, char* argv[])
             std::cerr << "Failed to connect to server" << std::endl;
             return -1;
         }
-    } else {
-        fprintf(stderr, "Invalid mode. Use 'server' or 'client'.\n");
-        return -1;
     }
 
     auto optIntercomAudio = IntercomAudio::create(*connection);
@@ -329,5 +324,4 @@ int main(int argc, char* argv[])
         }
     }
     Pa_Terminate();
-    */
 }
