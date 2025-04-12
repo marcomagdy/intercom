@@ -240,7 +240,7 @@ std::string dicover_peer(bool& should_listen)
     return peer_ip_address;
 }
 
-int main(int argc, char* argv[])
+int main()
 {
     bool should_listen = false;
     std::string peer_ip_address = dicover_peer(should_listen);
@@ -278,8 +278,8 @@ int main(int argc, char* argv[])
         // Start client
         printf("Starting client...\n");
         // Client code here
-        printf("Connecting to [%s]...\n", argv[2]);
-        if (auto optConn = Intercom::TcpConnection::connect(argv[2], TCP_PORT); optConn) {
+        printf("Connecting to [%s]...\n", peer_ip_address.c_str());
+        if (auto optConn = Intercom::TcpConnection::connect(peer_ip_address.c_str(), TCP_PORT); optConn) {
             optConn->set_non_blocking();
             connection = std::move(*optConn);
         }
