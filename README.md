@@ -1,0 +1,3 @@
+## Dependencies
+
+`> brew install portaudio`
